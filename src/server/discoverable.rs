@@ -1,6 +1,6 @@
 use std::net::{ UdpSocket };
 pub fn announce(port:&str){
-    let broadcast_addr = "225.225.225.225:8787";
+    let broadcast_addr = "255.255.255.255:8787";
 
     let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
     socket.set_broadcast(true).unwrap();

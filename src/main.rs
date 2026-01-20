@@ -52,12 +52,20 @@ fn serve(port:&str){
     server::read_file_name(local_ip, port);
 }
 
+fn show(arg: &str){
+    match arg{
+        "available" => client::discover::discover(),
+        _ =>{ eprintln!("Invalid argument: {}\n use show available", arg);exit(1) },
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     match args[1].as_str() {
         "send" => send(&args[2],&args[3]),
         "serve" => serve(&args[2]),
+        "show" => show(&args[2]),
         _ => {
             eprintln!(
                 "Usage:

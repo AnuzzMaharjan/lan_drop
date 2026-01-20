@@ -1,3 +1,5 @@
+pub mod discover;
+
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::net::{TcpStream};
