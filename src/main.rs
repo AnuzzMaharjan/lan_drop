@@ -54,7 +54,10 @@ fn serve(port:&str){
 
 fn show(arg: &str){
     match arg{
-        "available" => client::discover::discover(),
+        "available" => match client::discover::discover() {
+            Err(e) => eprintln!("Failed to discover: {}",e),
+            _ => ()
+        },
         _ =>{ eprintln!("Invalid argument: {}\n use show available", arg);exit(1) },
     }
 }

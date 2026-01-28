@@ -13,7 +13,7 @@ pub fn read_file_name(ip_addr: std::net::IpAddr, port: u16) {
     let listener = TcpListener::bind(ip_addr.to_string() + ":" + port.to_string().as_str()).unwrap();
 
     // after listening, announce
-    discoverable::announce("7878");
+    discoverable::announce(port.to_string().as_str());
     
     for stream in listener.incoming(){
         let mut stream = stream.unwrap();
