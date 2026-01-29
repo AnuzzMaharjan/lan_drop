@@ -1,19 +1,30 @@
 mod discoverable;
 
-use std::{fs, fs::File};
+use std::{fs, fs::File, thread};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::string::ToString;
 
 const ROOT_PATH:&str = "D:/rust/projects/lan_drop/";
 
-pub fn read_file_name(ip_addr: std::net::IpAddr, port: u16) {
-    println!("Reading file...");
-    let mut len_buf = [0u8; 4];
-    let listener = TcpListener::bind(ip_addr.to_string() + ":" + port.to_string().as_str()).unwrap();
+pub fn read_file_name(ip_addr: std::net::IpAddr, port:String) {
+    let listener = TcpListener::bind(ip_addr.to_string() + ":" + port.as_str()).unwrap();
 
     // after listening, announce
-    discoverable::announce(port.to_string().as_str());
+    thread::spawn(|| {
+        discoverable::announce(port);
+    });
+    
+    //start tcp server
+    thread::spawn(|| {
+        tcp_server(listener);
+    });
+    
+}
+
+fn tcp_server(listener:TcpListener){
+    println!("Reading file...");
+    let mut len_buf = [0u8; 4];
     
     for stream in listener.incoming(){
         let mut stream = stream.unwrap();

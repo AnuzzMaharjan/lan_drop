@@ -41,13 +41,14 @@ fn send(ip_port:&str, file_path:&str) {
     client::send_file_name(file_path , &ip, &port);
 }
 
-fn serve(port:&str){
-    let port = match port.parse::<u16>() {
-        Ok(p) => p,
-        Err(_) => { eprintln!("Invalid port number!");exit(1) },
+fn serve(port:String){
+    if let Err(_) = port.parse::<u16>() {
+        eprintln!("Invalid port number!");
+        exit(1);
     };
 
     println!("Starting server on {}", port);
+
     let local_ip = get_local_ip();
     server::read_file_name(local_ip, port);
 }
@@ -67,7 +68,7 @@ fn main() {
 
     match args[1].as_str() {
         "send" => send(&args[2],&args[3]),
-        "serve" => serve(&args[2]),
+        "serve" => serve(args[2].clone()),
         "show" => show(&args[2]),
         _ => {
             eprintln!(
