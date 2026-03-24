@@ -4,28 +4,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[derive(Debug)]
-struct Peer {
-    name: String,
-    ip: IpAddr,
-    tcp_port: u16,
-    last_seen: Instant,
-}
-impl Peer {
-    fn new(name: String, ip: IpAddr, tcp_port: u16) -> Peer {
-        Peer {
-            name,
-            ip,
-            tcp_port,
-            last_seen: Instant::now(),
-        }
-    }
-}
-
-enum Control {
-    Data(Peer),
-    Stop(String),
-}
+use crate::custom_types::{Control,Peer};
 
 /// Starts the peer discovery system.
 ///
@@ -121,9 +100,9 @@ fn initialize_writer(
                         peers
                             .lock()
                             .unwrap()
-                            .entry(peer.ip)
+                            .entry(*peer.get_ip())
                             .and_modify(|p| p.last_seen = Instant::now())
-                            .or_insert(Peer::new(peer.name, peer.ip, peer.tcp_port));
+                            .or_insert(Peer::new(peer.get_name().clone(), peer.get_ip().clone(), peer.get_tcp_port()));
                     }
                     peers
                         .lock()
@@ -131,7 +110,7 @@ fn initialize_writer(
                         .retain(|_, p| p.last_seen.elapsed() < Duration::from_secs(2));
 
                     for peer in peers.lock().unwrap().values() {
-                        println!("-> {} | {}", peer.ip, peer.name);
+                        println!("-> {} | {}", peer.get_ip(), peer.get_name());
                     }
                     ack_tx.send(()).unwrap();
                 }
@@ -237,9 +216,9 @@ mod tests {
         match control {
             Control::Data(peer) => {
                 println!("{:#?}", peer);
-                assert_eq!(peer.name, String::from("Lancus"));
-                assert_eq!(peer.tcp_port, 9999);
-                assert_eq!(peer.ip, IpAddr::V4(Ipv4Addr::LOCALHOST));
+                assert_eq!(*peer.get_name(), String::from("Lancus"));
+                assert_eq!(peer.get_tcp_port(), 9999);
+                assert_eq!(*peer.get_ip(), IpAddr::V4(Ipv4Addr::LOCALHOST));
             }
             Control::Stop(err) => panic!("Listener stopped unexpectedly: {}", err),
         }
@@ -279,8 +258,8 @@ mod tests {
                 .unwrap()
                 .get(&IpAddr::V4(Ipv4Addr::LOCALHOST))
                 .unwrap()
-                .name,
-            peer.name
+                .get_name(),
+            peer.get_name()
         );
         assert_eq!(
             peers
@@ -288,8 +267,8 @@ mod tests {
                 .unwrap()
                 .get(&IpAddr::V4(Ipv4Addr::LOCALHOST))
                 .unwrap()
-                .tcp_port,
-            peer.tcp_port
+                .get_tcp_port(),
+            peer.get_tcp_port()
         );
     }
 }
