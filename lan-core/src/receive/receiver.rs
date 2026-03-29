@@ -1,71 +1,146 @@
-use std::io::{ErrorKind, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use crate::custom_types::ErrorMessage;
+use rand;
+use rand::RngExt;
+use regex::Regex;
 use std::fs;
 use std::fs::File;
+use std::io::{ErrorKind, Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use crate::custom_types::ErrorMessage;
 
-pub fn receiver(listener: &TcpListener, file_save_path: &str, filename:Option<&str>) {
+pub fn receiver(listener: &TcpListener, file_save_path: &str, filename: Option<&str>) {
     println!("Initializing receiver...");
 
-    let mut len_buf = [0u8; 4];
-
     for stream in listener.incoming() {
-        let mut stream = stream.unwrap();
-
-        stream.read_exact(&mut len_buf).unwrap();
-        let name_len = u32::from_be_bytes(len_buf) as usize;
-
-        let mut name_buf = vec![0u8; name_len];
-        stream.read_exact(&mut name_buf).unwrap();
-
-        let mut filepath = String::from_utf8(name_buf).unwrap();
-        println!("Name: {}", filepath);
-
-        filepath = check_path(&filepath);
-
-        let final_filename = match filename {
-            Some(name) => name.to_string(), // explicit override
-            None => Path::new(&filepath)
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string(), // fallback from filepath
+        let mut stream = match stream {
+            Ok(stream) => stream,
+            Err(_) => {
+                eprintln!("Tcp stream error!");
+                continue;
+            }
         };
 
-        match read_store_file_stream(&final_filename,file_save_path,&mut stream) {
+        let filename = match filename {
+            Some(name) => {
+                println!("Provided filename: {}", name);
+                name.to_string()
+            }
+            None => {
+                // fallback if there is no filename explicitly specified
+                let filepath = get_file_path(&mut stream);
+                get_file_name(&filepath)
+            }
+        };
+
+        match read_store_file_stream(&filename, file_save_path, &mut stream) {
             Err(err) => {
-            eprintln!("{}", err.get_message());
-            return;
-            },
+                eprintln!("{}", err.get_message());
+                return;
+            }
             Ok(msg) => println!("{}", msg),
         }
     }
 }
+fn filepath_contains_filename(filepath: &str) -> bool {
+    let filename_regex = Regex::new(r"(?i)^[\w,\s-]+\.[A-Za-z]+$").unwrap();
+    filename_regex.is_match(filepath)
+}
+fn get_file_name(filepath: &str) -> String {
+    // checking for filename
+    if filepath_contains_filename(filepath) {
+        // split the filepath to get the name
+        let filename = filepath.split("/").last().unwrap().to_string();
+        filename
+    } else {
+        create_random_name()
+    }
+}
+fn create_random_name() -> String {
+    let mut rng = rand::rng();
+    let random_filename: String = (0..10)
+        .map(|_| rng.sample(rand::distr::Alphanumeric) as char)
+        .collect();
+    random_filename + ".txt"
+}
+fn get_file_path(stream: &mut TcpStream) -> String {
+    let mut len_buf = [0u8; 4];
+    // first: length of the file path string
+    stream.read_exact(&mut len_buf).unwrap();
+    let path_len = u32::from_be_bytes(len_buf) as usize;
 
-fn read_store_file_stream(filename:&str, file_save_path:&str,stream: &mut TcpStream) -> Result<String,ErrorMessage> {
-    if !fs::exists(file_save_path).unwrap() {
-        return Err(ErrorMessage::new(format!("File not found: {}", file_save_path), ErrorKind::NotFound));
-    };
+    let mut path_buf = vec![0u8; path_len];
+    // second: filepath
+    stream.read_exact(&mut path_buf).unwrap();
+    let mut filepath = String::from_utf8(path_buf).unwrap();
 
-    if let Err(e) = fs::create_dir_all(PathBuf::from(file_save_path).join("uploads")) {
-        return Err(ErrorMessage::new(format!("Cannot create directory: {}", file_save_path), e.kind()));
-    };
-    let mut file = match File::create(PathBuf::from(file_save_path).join("uploads").join(filename)) {
+    println!("File Path: {}", filepath);
+
+    // normalize the file path
+    filepath = check_path(&filepath);
+    filepath
+}
+fn get_directory_chain(filepath:&str)->PathBuf{
+    if filepath_contains_filename(filepath) {
+        let mut parts = filepath.split("/").collect::<Vec<&str>>();
+        let mut chain = PathBuf::new();
+        for dir in &parts[..parts.len() - 1] {
+            chain.push(dir);
+        };
+        chain
+    }else{
+        PathBuf::from(filepath)
+    }
+}
+fn create_directory(file_save_path:&str) -> Result<PathBuf,ErrorMessage> {
+    let directory_chain = get_directory_chain(file_save_path);
+    if let Err(e) = fs::create_dir_all(&directory_chain) {
+        Err(ErrorMessage::new(
+            format!("Cannot create directory: {}", file_save_path),
+            e.kind(),
+        ))
+    }else{
+        Ok(directory_chain)
+    }
+}
+fn read_store_file_stream(
+    filename: &str,
+    file_save_path: &str,
+    stream: &mut TcpStream,
+) -> Result<String, ErrorMessage> {
+    let directory = create_directory(file_save_path)?;
+    let path_to_file = directory.join(filename);
+    let mut file = match File::create(&path_to_file)
+    {
         Ok(f) => f,
-        Err(e) => return Err(ErrorMessage::new(format!("file {} creation failed!\nPermission Denied: {}",filename,file_save_path),e.kind()))
+        Err(e) => {
+            return Err(ErrorMessage::new(
+                format!(
+                    "file creation failed!\nPermission Denied At: {}",
+                    path_to_file.to_str().unwrap()
+                ),
+                e.kind(),
+            ));
+        }
     };
     let mut buffer = [0u8; 8192];
-    loop{
+    loop {
         let n = match stream.read(&mut buffer) {
             Ok(n) => n,
-            Err(e) => return Err(ErrorMessage::new(format!("Connection unexpectedly closed: {}",e),e.kind()))
+            Err(e) => {
+                return Err(ErrorMessage::new(
+                    format!("Connection unexpectedly closed: {}", e),
+                    e.kind(),
+                ));
+            }
         };
-        if n==0 {
+        if n == 0 {
             break;
         }
-        if let Err(e) =  file.write_all(&buffer[..n]) {
-            return Err(ErrorMessage::new(format!("Connection unexpectedly closed: {}",e),e.kind()))
+        if let Err(e) = file.write_all(&buffer[..n]) {
+            return Err(ErrorMessage::new(
+                format!("Connection unexpectedly closed: {}", e),
+                e.kind(),
+            ));
         };
     }
     Ok(format!("File saved: {}/{}", file_save_path, filename))
@@ -77,4 +152,18 @@ fn check_path(filepath: &str) -> String {
     } else {
         filepath.to_string()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_path_windows_style() {
+        let input = "c:\\users\\test\\file.txt";
+        let output = check_path(input);
+        assert_eq!(output, "c:/users/test/file.txt");
+    }
+    #[test]
+    fn test_file_transfer() {}
 }
