@@ -53,3 +53,28 @@ impl ErrorMessage {
         &self.error
     }
 }
+
+pub struct SendFileData{
+    filename: String,
+    ip: IpAddr,
+    tcp_port: u16
+}
+
+impl SendFileData {
+    pub fn new(filename: String, ip: IpAddr, tcp_port: u16) -> SendFileData {
+        SendFileData {
+            filename,
+            ip,
+            tcp_port
+        }
+    }
+    pub fn get_filename(&self) -> &String {
+        &self.filename
+    }
+    pub fn get_ip(&self) -> &IpAddr {
+        &self.ip
+    }
+    pub fn get_tcp_port(&self) -> u16 {
+        self.tcp_port
+    }
+}
