@@ -12,22 +12,24 @@ pub fn send_file(to_be_sent_data:&SendFileData)->Result<(), ErrorMessage>{
         }
     };
 
-    let name_bytes = to_be_sent_data.get_filename().as_bytes();
-    let name_length = name_bytes.len() as u32;
+    let path_buf = to_be_sent_data.get_filepath().as_bytes();
+    let path_length = path_buf.len() as u32;
 
-    if let Err(e) = stream.write_all(&name_length.to_be_bytes()) {
-        return Err(ErrorMessage::new("Failed to send file name length!".to_string(), e.kind()));
+    println!("path buf: {:?}, path length: {:?}", path_buf, &path_length.to_be_bytes());
+
+    if let Err(e) = stream.write_all(&path_length.to_be_bytes()) {
+        return Err(ErrorMessage::new("Failed to send file path length!".to_string(), e.kind()));
     };
 
-    if let Err(e) = stream.write_all(name_bytes) {
-        return Err(ErrorMessage::new("Failed to send file name!".to_string(), e.kind()));
+    if let Err(e) = stream.write_all(path_buf) {
+        return Err(ErrorMessage::new("Failed to send file path!".to_string(), e.kind()));
     };
 
     if let Err(e) = stream.flush() {
         return Err(ErrorMessage::new("Failed to flush stream!".to_string(), e.kind()));
     };
 
-    if let Err(e) = stream_file(&to_be_sent_data.get_filename(), &mut stream) {
+    if let Err(e) = stream_file(&to_be_sent_data.get_filepath(), &mut stream) {
         return Err(ErrorMessage::new("Failed to send file data!".to_string(), e.kind()));
     };
 
@@ -46,11 +48,10 @@ fn stream_file(file_path: &str, stream: &mut TcpStream) -> std::io::Result<()>{
 
     loop {       
         let n = reader.read(&mut buffer)?;
-        
+        println!("Read {:?} bytes from file...", n);
         if n==0{
             break;
         }
-
         stream.write_all(&buffer[..n])?;
 
         total_bytes += n;

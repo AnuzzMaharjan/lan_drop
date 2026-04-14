@@ -29,6 +29,7 @@ impl Peer {
     }
 }
 
+#[derive(Debug)]
 pub enum Control {
     Data(Peer),
     Stop(String),
@@ -55,21 +56,21 @@ impl ErrorMessage {
 }
 
 pub struct SendFileData{
-    filename: String,
+    filepath: String,
     ip: IpAddr,
     tcp_port: u16
 }
 
 impl SendFileData {
-    pub fn new(filename: String, ip: IpAddr, tcp_port: u16) -> SendFileData {
+    pub fn new(filepath: String, ip: IpAddr, tcp_port: u16) -> SendFileData {
         SendFileData {
-            filename,
+            filepath,
             ip,
             tcp_port
         }
     }
-    pub fn get_filename(&self) -> &String {
-        &self.filename
+    pub fn get_filepath(&self) -> &String {
+        &self.filepath
     }
     pub fn get_ip(&self) -> &IpAddr {
         &self.ip

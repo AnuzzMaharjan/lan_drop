@@ -8,7 +8,11 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{PathBuf};
 
-pub fn receiver(listener: &TcpListener, file_save_path: &str, filename: Option<&str>) {
+pub fn receiver(
+    listener: &TcpListener,
+    file_save_path: String,
+    filename: Option<String>
+) {
     println!("Initializing receiver...");
 
     for stream in listener.incoming() {
@@ -20,19 +24,22 @@ pub fn receiver(listener: &TcpListener, file_save_path: &str, filename: Option<&
             }
         };
 
-        let filename = match filename {
+        // consume the file path sent by the sender 
+        let filepath = get_file_path(&mut stream);
+        
+        // if the filename is specified, use it, otherwise try to get it from the filepath, if that fails, create a random name
+        let filename = match filename.clone() {
             Some(name) => {
                 println!("Provided filename: {}", name);
-                name.to_string()
+                name
             }
             None => {
                 // fallback if there is no filename explicitly specified
-                let filepath = get_file_path(&mut stream);
                 get_file_name(&filepath[..])
             }
         };
-
-        match read_store_file_stream(&filename[..], file_save_path, &mut stream) {
+        
+        match read_store_file_stream(&filename[..], &file_save_path, &mut stream) {
             Err(err) => {
                 eprintln!("{}", err.get_message());
                 return;
@@ -58,6 +65,7 @@ fn get_file_name(filepath: &str) -> String {
     }
 }
 
+// final filename if someones stupid enough
 fn create_random_name() -> String {
     let mut rng = rand::rng();
     let random_filename: String = (0..10)
@@ -149,7 +157,7 @@ fn read_store_file_stream(
             ));
         };
     }
-    Ok(format!("File saved: {}/{}", file_save_path, filename))
+    Ok(format!("File saved: {} / {}", file_save_path, filename))
 }
 
 #[cfg(target_os = "windows")]
