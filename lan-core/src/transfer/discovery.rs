@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::custom_types::{Control,Peer};
+use crate::custom_types::{Control, Peer};
 
 /// Starts the peer discovery system.
 ///
@@ -32,11 +32,13 @@ pub fn discover() {
     let (_, shutdown_rx) = mpsc::channel::<()>();
 
     // initializes listener thread
-    let _listener_handle = initialize_listener("0.0.0.0:8787",tx,ack_listener_tx,shutdown_rx);
-    ack_rx.recv().unwrap();
+    let listener_handle = initialize_listener("0.0.0.0:8787", tx, ack_listener_tx, shutdown_rx);
     // initializes writer thread
     let _writer_handle = initialize_writer(peers.clone(), rx, ack_tx);
-    ack_listener_rx.recv().unwrap();
+
+    ack_listener_rx.recv().expect("Listener failed to start");
+    ack_rx.recv().expect("Writer failed to start");
+    listener_handle.join().expect("Listener thread panicked");
 }
 fn initialize_listener(
     addr: &str,
@@ -60,11 +62,14 @@ fn initialize_listener(
             }
         };
         let mut packet_buf = [0u8; 2048];
-        socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        // socket
+        //     .set_read_timeout(Some(Duration::from_secs(5)))
+        //     .unwrap();
         loop {
             // if shutdown signal received, signal to the writer thread to stop execution
             if shutdown_rx.try_recv().is_ok() {
-                tx.send(Control::Stop(String::from("Stop signal received!"))).unwrap();
+                tx.send(Control::Stop(String::from("Stop signal received!")))
+                    .unwrap();
                 break;
             }
             match socket.recv_from(&mut packet_buf) {
@@ -102,7 +107,11 @@ fn initialize_writer(
                             .unwrap()
                             .entry(*peer.get_ip())
                             .and_modify(|p| p.last_seen = Instant::now())
-                            .or_insert(Peer::new(peer.get_name().clone(), peer.get_ip().clone(), peer.get_tcp_port()));
+                            .or_insert(Peer::new(
+                                peer.get_name().clone(),
+                                peer.get_ip().clone(),
+                                peer.get_tcp_port(),
+                            ));
                     }
                     peers
                         .lock()
@@ -110,7 +119,7 @@ fn initialize_writer(
                         .retain(|_, p| p.last_seen.elapsed() < Duration::from_secs(2));
 
                     for peer in peers.lock().unwrap().values() {
-                        println!("-> {} | {}", peer.get_ip(), peer.get_name());
+                        println!("\r-> {} | {}", peer.get_ip(), peer.get_tcp_port());
                     }
                     ack_tx.send(()).unwrap();
                 }
@@ -198,7 +207,7 @@ mod tests {
         let (ack_tx, ack_rx) = mpsc::channel::<()>();
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
 
-        let listener_handle = initialize_listener("127.0.0.1:8787",tx, ack_tx, shutdown_rx);
+        let listener_handle = initialize_listener("127.0.0.1:8787", tx, ack_tx, shutdown_rx);
         ack_rx.recv().unwrap();
 
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -231,7 +240,8 @@ mod tests {
         let (ack_listener_tx, ack_listener_rx) = mpsc::channel::<()>();
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
 
-        let listener_handler = initialize_listener("127.0.0.1:8788",tx, ack_listener_tx,shutdown_rx);
+        let listener_handler =
+            initialize_listener("127.0.0.1:8788", tx, ack_listener_tx, shutdown_rx);
         ack_listener_rx.recv().unwrap();
 
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();

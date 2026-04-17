@@ -1,25 +1,25 @@
 use std::net::UdpSocket;
 
-fn build_message(name:&str,port:&str)->String{
-    format!("LAN_DROP|name={}|port={}",name,port)
+fn build_message(ip_addr:&str,port:&str)->String{
+    format!("LAN_DROP|ip_addr={}|port={}",ip_addr,port)
 }
 
 fn send_message_once(udp_socket: &UdpSocket, msg:&str, addr:&str)->std::io::Result<usize>{
     udp_socket.send_to(msg.as_bytes(), addr)
 }
 
-pub fn advertise(name:String,port:String){
+pub fn advertise(ip_addr:String,port:String){
     let broadcast_addr = "255.255.255.255:8787";
 
     let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
     socket.set_broadcast(true).unwrap();
 
-    let msg = build_message(&name,&port);
+    let msg = build_message(&ip_addr,&port);
     println!("{}",msg);
 
     loop{
         send_message_once(&socket,&msg, broadcast_addr).unwrap();
-        println!("Sent {} bytes...",msg.len());
+        println!("\rSent {} bytes...",msg.len());
         std::thread::sleep(std::time::Duration::from_secs(2));
     }
 }
