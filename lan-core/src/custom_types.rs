@@ -1,6 +1,7 @@
 use std::io::ErrorKind;
 use std::net::IpAddr;
 use std::time::Instant;
+use bincode::{Decode, Encode};
 
 #[derive(Debug)]
 pub struct Peer {
@@ -77,5 +78,19 @@ impl SendFileData {
     }
     pub fn get_tcp_port(&self) -> u16 {
         self.tcp_port
+    }
+}
+
+#[derive(Encode,Decode,Debug)]
+pub struct FileMetaData {
+    pub filename: String,
+    pub file_size: u64,
+    pub merkle_root: [u8;32],
+    pub chunk_size: u32
+}
+
+impl Drop for FileMetaData {
+    fn drop(&mut self) {
+        println!("FileMetaData dropped: {}", self.filename);
     }
 }

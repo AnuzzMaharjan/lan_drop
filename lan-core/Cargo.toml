@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+lan-engine = {path = "../lan-engine"}
 regex = "1.12.3"
-rand = "0.10.0"
+rand = "0.10.1"
+bincode = "2.0.1"

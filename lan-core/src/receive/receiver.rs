@@ -1,117 +1,103 @@
-use crate::custom_types::ErrorMessage;
-use rand;
-use rand::RngExt;
-use regex::Regex;
-use std::fs;
+use crate::custom_types::{Control, ErrorMessage, FileMetaData};
+use crate::utils::filepath_contains_filename;
+use bincode::config;
 use std::fs::File;
+use std::fs::{self};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{PathBuf};
 
-pub fn receiver(
-    listener: &TcpListener,
-    file_save_path: String,
-    filename: Option<String>
-) {
+pub fn receiver(listener: &TcpListener, file_save_path: String, filename: Option<String>, sender: std::sync::mpsc::Sender<Control>) {
     println!("Initializing receiver...");
 
-    for stream in listener.incoming() {
-        let mut stream = match stream {
-            Ok(stream) => stream,
-            Err(_) => {
-                eprintln!("Tcp stream error!");
-                continue;
-            }
-        };
+    // early check if the save path has a filename
+    if filepath_contains_filename(&file_save_path) {
+        eprintln!("Invalid save path! Save path should be a directory, not a file.");
+        std::process::exit(1);
+    }
 
-        // consume the file path sent by the sender 
-        let filepath = get_file_path(&mut stream);
-        
-        // if the filename is specified, use it, otherwise try to get it from the filepath, if that fails, create a random name
-        let filename = match filename.clone() {
-            Some(name) => {
-                println!("Provided filename: {}", name);
-                name
-            }
-            None => {
-                // fallback if there is no filename explicitly specified
-                get_file_name(&filepath[..])
-            }
-        };
-        
-        match read_store_file_stream(&filename[..], &file_save_path, &mut stream) {
-            Err(err) => {
-                eprintln!("{}", err.get_message());
-                return;
-            }
-            Ok(msg) => println!("{}", msg),
+    let mut stream = match listener.accept() {
+        Ok((str_res, addr_res)) => {
+            println!("Connection established from: {}", addr_res.ip());
+
+            str_res
         }
+        Err(e) => {
+            eprintln!("Failed to accept connection: {}", e);
+            return;
+        }
+    };
+
+    // meta data size worth 4 bytes
+    let mut metadata_len_buf = [0u8; 4];
+    stream.read_exact(&mut metadata_len_buf).unwrap();
+
+    // construct metadata from metadata size
+    let mut metadata_buf = vec![0u8; u32::from_be_bytes(metadata_len_buf) as usize];
+    stream.read_exact(&mut metadata_buf).unwrap();
+    let (metadata, metadata_size): (FileMetaData, usize) =
+        match bincode::decode_from_slice(&metadata_buf, config::standard()) {
+            Ok((meta, size)) => (meta, size),
+            Err(e) => {
+                eprintln!("Failed to decode metadata: {}", e);
+                std::process::exit(1);
+            }
+        };
+    println!(
+        "Received metadata length: {}, Metadata: {:#?}",
+        metadata_size, metadata
+    );
+
+    // sanity check for metadata size
+    if metadata_size != metadata_buf.len() {
+        eprintln!("Corrupted metadata received! Terminating...");
+        std::process::exit(1);
     }
-}
 
-fn filepath_contains_filename(filepath: &str) -> bool {
-    let filename_regex = Regex::new(r"(?i)^[\w\s,:\\/-]+\.[A-Za-z]+$").unwrap();
-    filename_regex.is_match(filepath)
-}
+    // if the filename is specified, use it, otherwise get from the metadata
+    let filename = match filename {
+        Some(name) => {
+            println!("Provided filename: {}", name);
+            name
+        }
+        None => {
+            // fallback if there is no filename explicitly specified
+            metadata.filename.clone()
+        }
+    };
 
-fn get_file_name(filepath: &str) -> String {
-    // checking for filename
-    if filepath_contains_filename(filepath) {
-        // split the filepath to get the name
-        let filename = filepath.split("/").last().unwrap().to_string();
-        filename
-    } else {
-        create_random_name()
+    match read_store_file_stream(&filename[..], &file_save_path, &metadata, &mut stream) {
+        Err(err) => {
+            eprintln!("{}", err.get_message());
+            eprintln!("Error Kind: {:?}", err.get_error());
+            return;
+        }
+        Ok(msg) => println!("{}", msg),
     }
+
+    sender.send(Control::Stop("Process complete! Stopping advertiser...".to_string())).unwrap();
 }
 
-// final filename if someones stupid enough
-fn create_random_name() -> String {
-    let mut rng = rand::rng();
-    let random_filename: String = (0..10)
-        .map(|_| rng.sample(rand::distr::Alphanumeric) as char)
-        .collect();
-    random_filename + ".txt"
-}
-
-fn get_file_path(stream: &mut TcpStream) -> String {
-    let mut len_buf = [0u8; 4];
-    // first: length of the file path string
-    stream.read_exact(&mut len_buf).unwrap();
-    let path_len = u32::from_be_bytes(len_buf) as usize;
-
-    let mut path_buf = vec![0u8; path_len];
-    // second: filepath
-    stream.read_exact(&mut path_buf).unwrap();
-    let mut filepath = String::from_utf8(path_buf).unwrap();
-
-    println!("File Path: {}", filepath);
-
-    // normalize the file path
-    filepath = check_path(filepath.as_str());
-    filepath
-}
-
-fn get_directory_chain(filepath:&str)->PathBuf{
+fn get_directory_chain(filepath: &str) -> PathBuf {
     let filepath = check_path(filepath);
     if filepath_contains_filename(&filepath) {
         let mut parts = filepath.split("/").collect::<Vec<&str>>();
         let _ = parts.pop();
         let chain = PathBuf::from(parts.join("/"));
         chain
-    }else{
+    } else {
         PathBuf::from(filepath)
     }
 }
 
-fn create_directory(file_save_path:&str) -> Result<PathBuf,ErrorMessage> {
+fn create_directory(file_save_path: &str) -> Result<PathBuf, ErrorMessage> {
     let directory_chain = get_directory_chain(file_save_path);
     if let Err(e) = fs::create_dir_all(&directory_chain) {
         Err(ErrorMessage::new(
             format!("Cannot create directory: {}", file_save_path),
             e.kind(),
         ))
-    }else{
+    } else {
         Ok(directory_chain)
     }
 }
@@ -119,24 +105,19 @@ fn create_directory(file_save_path:&str) -> Result<PathBuf,ErrorMessage> {
 fn read_store_file_stream(
     filename: &str,
     file_save_path: &str,
+    metadata: &FileMetaData,
     stream: &mut TcpStream,
 ) -> Result<String, ErrorMessage> {
-    let directory = create_directory(file_save_path)?;
-    let path_to_file = directory.join(filename);
-    let mut file = match File::create(&path_to_file)
-    {
+    // create a temporary file in the temporary directory
+    let filename_prefix = PathBuf::from(filename).file_prefix().unwrap().to_str().unwrap().to_owned();
+    let temp_file_path = PathBuf::from(file_save_path).join(format!("{}.tmp",filename_prefix));
+    let mut temp_file = match file_create(temp_file_path.to_str().unwrap()) {
         Ok(f) => f,
-        Err(e) => {
-            return Err(ErrorMessage::new(
-                format!(
-                    "file creation failed!\nPermission Denied At: {}",
-                    path_to_file.to_str().unwrap()
-                ),
-                e.kind(),
-            ));
-        }
+        Err(e) => return Err(e),
     };
-    let mut buffer = [0u8; 8192];
+    
+    // buffer as per the chunk size sent from the sender
+    let mut buffer = vec![0u8; metadata.chunk_size as usize];
     loop {
         let n = match stream.read(&mut buffer) {
             Ok(n) => n,
@@ -150,14 +131,80 @@ fn read_store_file_stream(
         if n == 0 {
             break;
         }
-        if let Err(e) = file.write_all(&buffer[..n]) {
+        if let Err(e) = temp_file.write_all(&buffer[..n]) {
             return Err(ErrorMessage::new(
                 format!("Connection unexpectedly closed: {}", e),
                 e.kind(),
             ));
         };
     }
+
+    // file operations after temp file is stored
+    file_operations(metadata, &temp_file_path, filename, file_save_path)?;
+
     Ok(format!("File saved: {} / {}", file_save_path, filename))
+}
+
+fn file_operations(metadata: &FileMetaData, temp_file_path: &PathBuf, filename: &str, file_save_path: &str) -> Result<(), ErrorMessage> {
+    // verify file integrity using the Merkle root from the metadata
+    let (received_file_mtree,_) = lan_engine::MerkleTree::new(temp_file_path.to_str().unwrap()).unwrap();
+    let received_root = received_file_mtree.get_root_hash().unwrap();
+    
+    // corrupted file if the Merkle root does not match
+    if metadata.merkle_root != received_root {
+        // cleanup the temp file and directory if the file is corrupted
+        cleanup_temp_file(&temp_file_path);
+
+        return Err(ErrorMessage::new("File corrupted!".to_string(), std::io::ErrorKind::InvalidData));
+    }
+    // actual save path for the file after transfer is complete
+    let save_directory = create_directory(file_save_path)?;
+    let path_to_file = save_directory.join(filename);
+
+    // attempt to move the file
+    if let Err(e) = fs::rename(&temp_file_path, &path_to_file) {
+        // if moving the file fails, attempt to copy and delete the temp file
+        if let Err(e) = fs::copy(&temp_file_path, &path_to_file) {
+            return Err(ErrorMessage::new(
+                format!("Failed to save file: {}", e),
+                e.kind(),
+            ));
+        }
+        // cleanup if the file is partially moved
+        cleanup_temp_file(&temp_file_path);
+
+        return Err(ErrorMessage::new(
+            format!("Failed to save file: {}", e),
+            e.kind(),
+        ));
+    }else {
+        // cleanup if the file is successfully moved
+        cleanup_temp_file(&temp_file_path);
+        println!("File saved successfully at: {}", path_to_file.to_str().unwrap());
+    }
+    Ok(())
+
+}
+
+fn file_create(filepath: &str) -> Result<File, ErrorMessage> {
+    match File::create(filepath) {
+        Ok(f) => Ok(f),
+        Err(e) => Err(ErrorMessage::new(
+            format!(
+                "file creation failed!\nPermission Denied At: {}",
+                filepath
+            ),
+            e.kind(),
+        )),
+    }
+
+}
+
+fn cleanup_temp_file(temp_path: &PathBuf) {
+    // attempt to remove the temp file, if it exists
+    if temp_path.exists() {
+        let _ = fs::remove_file(temp_path);
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -181,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filepath_contains_filename(){
+    fn test_filepath_contains_filename() {
         let filepath1 = "D:/test/file.txt";
         let filepath2 = "D:\\users\\test";
         let filepath3 = "D:\\users\\test test\\file.txt";
@@ -189,28 +236,8 @@ mod tests {
         assert_eq!(filepath_contains_filename(filepath2), false);
         assert_eq!(filepath_contains_filename(filepath3), true);
     }
-
     #[test]
-    fn test_get_file_name(){
-        let filepath1 = "D:/test/file.txt";
-        let filepath2 = "D:\\users\\test";
-        assert_eq!(get_file_name(filepath1), "file.txt");
-        assert_eq!(get_file_name(filepath2).ends_with(".txt"), true);
-    }
-    
-    #[test]
-    fn test_create_random_name(){
-        let name1 = create_random_name();
-        let name2 = create_random_name();
-        assert_eq!(name1.len(), 14);
-        assert_eq!(name2.len(), 14);
-        assert_eq!(name1.ends_with(".txt"), true);
-        assert_eq!(name2.ends_with(".txt"), true);
-        assert_ne!(name1, name2);
-    }
-
-    #[test]
-    fn test_get_directory_chain(){
+    fn test_get_directory_chain() {
         let filepath1 = "D:/test/file.txt";
         let filepath2 = "D:\\users\\test";
         let chain1 = get_directory_chain(filepath1);

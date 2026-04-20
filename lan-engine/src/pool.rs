@@ -4,26 +4,33 @@ type Job = Box<dyn FnOnce() + Send + 'static>;
 
 struct Worker {
     id: usize,
-    thread: std::thread::JoinHandle<()>
+    thread: Option<std::thread::JoinHandle<()>>
 }
 
 pub struct ThreadPool {
     workers: Vec<Worker>,
-    sender: mpsc::Sender<Job>
+    sender: Option<mpsc::Sender<Job>>
 }
 impl Worker {
     fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
         let thread = std::thread::spawn(move || loop {
-            let job = receiver.lock().expect("Mutex poisoned").recv().expect("Channel closed");
+            let job = receiver.lock().expect("Mutex poisoned").recv();
 
-            println!("Worker {} is executing a job.", id);
-
-            job();
+            match job {
+                Ok(job) => {
+                    println!("Worker {} got a job; executing.", id);
+                    job();
+                },
+                Err(_) => {
+                    println!("Worker {} is shutting down.", id);
+                    break;
+                }
+            }
         });
 
         Worker {
             id,
-            thread
+            thread:Some(thread)
         }
 
     }
@@ -43,7 +50,7 @@ impl ThreadPool {
 
         ThreadPool {
             workers,
-            sender
+            sender:Some(sender)
         }
     }
 }
@@ -54,6 +61,19 @@ impl ThreadPool {
         F: FnOnce() + Send + 'static
     {
         let job = Box::new(f);
-        self.sender.send(job).expect("Failed to send job to worker");
+        self.sender.as_ref().unwrap().send(job).expect("Failed to send job to worker");
+    }
+}
+
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        drop(self.sender.take());
+
+        for worker in &mut self.workers {   
+            println!("Shutting down worker {}", worker.id);
+            if let Some(thread) = worker.thread.take() {
+                thread.join().unwrap();
+            }
+        }
     }
 }
