@@ -40,7 +40,7 @@ impl Node {
 
 #[derive(Debug)]
 pub struct MerkleTree {
-    pub root: Option<Node>,
+    root: Option<Node>,
 }
 
 impl MerkleTree {

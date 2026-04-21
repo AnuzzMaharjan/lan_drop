@@ -1,13 +1,19 @@
 use crate::custom_types::{Control, ErrorMessage, FileMetaData};
-use crate::utils::filepath_contains_filename;
+use crate::utils::{display_progress, filepath_contains_filename};
 use bincode::config;
 use std::fs::File;
 use std::fs::{self};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::{PathBuf};
+use std::path::PathBuf;
+use std::time::Instant;
 
-pub fn receiver(listener: &TcpListener, file_save_path: String, filename: Option<String>, sender: std::sync::mpsc::Sender<Control>) {
+pub fn receiver(
+    listener: &TcpListener,
+    file_save_path: String,
+    filename: Option<String>,
+    sender: std::sync::mpsc::Sender<Control>,
+) {
     println!("Initializing receiver...");
 
     // early check if the save path has a filename
@@ -44,8 +50,8 @@ pub fn receiver(listener: &TcpListener, file_save_path: String, filename: Option
             }
         };
     println!(
-        "Received metadata length: {}, Metadata: {:#?}",
-        metadata_size, metadata
+        "Received metadata length: {} bytes",
+        metadata_size
     );
 
     // sanity check for metadata size
@@ -75,7 +81,11 @@ pub fn receiver(listener: &TcpListener, file_save_path: String, filename: Option
         Ok(msg) => println!("{}", msg),
     }
 
-    sender.send(Control::Stop("Process complete! Stopping advertiser...".to_string())).unwrap();
+    sender
+        .send(Control::Stop(
+            "Process complete! Stopping advertiser...".to_string(),
+        ))
+        .unwrap();
 }
 
 fn get_directory_chain(filepath: &str) -> PathBuf {
@@ -109,13 +119,20 @@ fn read_store_file_stream(
     stream: &mut TcpStream,
 ) -> Result<String, ErrorMessage> {
     // create a temporary file in the temporary directory
-    let filename_prefix = PathBuf::from(filename).file_prefix().unwrap().to_str().unwrap().to_owned();
-    let temp_file_path = PathBuf::from(file_save_path).join(format!("{}.tmp",filename_prefix));
+    let filename_prefix = PathBuf::from(filename)
+        .file_prefix()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let temp_file_path = PathBuf::from(file_save_path).join(format!("{}.tmp", filename_prefix));
     let mut temp_file = match file_create(temp_file_path.to_str().unwrap()) {
         Ok(f) => f,
         Err(e) => return Err(e),
     };
     
+    let total_bytes = 0;
+    let start = Instant::now();
     // buffer as per the chunk size sent from the sender
     let mut buffer = vec![0u8; metadata.chunk_size as usize];
     loop {
@@ -131,6 +148,14 @@ fn read_store_file_stream(
         if n == 0 {
             break;
         }
+
+        display_progress(
+            total_bytes,
+            n,
+            metadata.file_size.try_into().unwrap(),
+            &start,
+        );
+
         if let Err(e) = temp_file.write_all(&buffer[..n]) {
             return Err(ErrorMessage::new(
                 format!("Connection unexpectedly closed: {}", e),
@@ -145,17 +170,26 @@ fn read_store_file_stream(
     Ok(format!("File saved: {} / {}", file_save_path, filename))
 }
 
-fn file_operations(metadata: &FileMetaData, temp_file_path: &PathBuf, filename: &str, file_save_path: &str) -> Result<(), ErrorMessage> {
+fn file_operations(
+    metadata: &FileMetaData,
+    temp_file_path: &PathBuf,
+    filename: &str,
+    file_save_path: &str,
+) -> Result<(), ErrorMessage> {
     // verify file integrity using the Merkle root from the metadata
-    let (received_file_mtree,_) = lan_engine::MerkleTree::new(temp_file_path.to_str().unwrap()).unwrap();
+    let (received_file_mtree, _) =
+        lan_engine::MerkleTree::new(temp_file_path.to_str().unwrap()).unwrap();
     let received_root = received_file_mtree.get_root_hash().unwrap();
-    
+
     // corrupted file if the Merkle root does not match
     if metadata.merkle_root != received_root {
         // cleanup the temp file and directory if the file is corrupted
         cleanup_temp_file(&temp_file_path);
 
-        return Err(ErrorMessage::new("File corrupted!".to_string(), std::io::ErrorKind::InvalidData));
+        return Err(ErrorMessage::new(
+            "File corrupted!".to_string(),
+            std::io::ErrorKind::InvalidData,
+        ));
     }
     // actual save path for the file after transfer is complete
     let save_directory = create_directory(file_save_path)?;
@@ -177,27 +211,25 @@ fn file_operations(metadata: &FileMetaData, temp_file_path: &PathBuf, filename: 
             format!("Failed to save file: {}", e),
             e.kind(),
         ));
-    }else {
+    } else {
         // cleanup if the file is successfully moved
         cleanup_temp_file(&temp_file_path);
-        println!("File saved successfully at: {}", path_to_file.to_str().unwrap());
+        println!(
+            "File saved successfully at: {}",
+            path_to_file.to_str().unwrap()
+        );
     }
     Ok(())
-
 }
 
 fn file_create(filepath: &str) -> Result<File, ErrorMessage> {
     match File::create(filepath) {
         Ok(f) => Ok(f),
         Err(e) => Err(ErrorMessage::new(
-            format!(
-                "file creation failed!\nPermission Denied At: {}",
-                filepath
-            ),
+            format!("file creation failed!\nPermission Denied At: {}", filepath),
             e.kind(),
         )),
     }
-
 }
 
 fn cleanup_temp_file(temp_path: &PathBuf) {

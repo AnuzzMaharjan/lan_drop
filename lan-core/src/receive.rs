@@ -3,9 +3,7 @@ mod receiver;
 
 use std::net::TcpListener;
 
-use lan_engine::ThreadPool;
-
-use crate::{custom_types::Control, utils::get_local_ip};
+use crate::{custom_types::Control, threadpool, utils::get_local_ip};
 
 pub fn init_receiver(port: String, file_save_path: Option<String>, filename: Option<String>) {
         let local_ip = match get_local_ip() {
@@ -21,7 +19,7 @@ pub fn init_receiver(port: String, file_save_path: Option<String>, filename: Opt
     let file_save_path = match file_save_path {
         Some(path) => path,
         None => {
-            eprintln!("File save path not specified! Usage: cargo run --bin rec -p <port> <file_save_path> [filename]");
+            eprintln!("File save path not specified!");
             std::process::exit(1);
         }
     };
@@ -31,13 +29,16 @@ pub fn init_receiver(port: String, file_save_path: Option<String>, filename: Opt
     // message channel
     let (sender,receiver) = std::sync::mpsc::channel::<Control>();
 
-    let pool = ThreadPool::new(2);
+    let pool = threadpool::get_thread_pool();
 
-    pool.execute(move || {
+    let receiver_handle = pool.execute(move || {
         receiver::receiver(&listener, file_save_path, filename, sender);
     });
 
-    pool.execute(move || {
+    let advertise_handle = pool.execute(move || {
         advertise::advertise(port, receiver);
     });
+
+    receiver_handle.recv().unwrap();
+    advertise_handle.recv().unwrap();
 }

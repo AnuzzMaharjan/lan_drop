@@ -1,15 +1,15 @@
 // launch receiver with arguments from command line
 fn launch_receiver(args: Vec<String>) {
     let port = args.iter().position(|x| x == "-p").and_then(|i| args.get(i + 1)).unwrap_or_else(|| {
-        eprintln!("Port not specified! Usage: cargo run --bin rec -p <port> <file_save_path> [filename]");
+        eprintln!("Port not specified! Usage: lan-cli -p <port> <file_save_path> [filename]");
         std::process::exit(1);
     });
     let file_save_path = args.iter().position(|x| x == "-f").and_then(|i| args.get(i + 1)).unwrap_or_else(|| {
-        eprintln!("Port not specified! Usage: cargo run --bin rec -p <port> <file_save_path> [filename]");
+        eprintln!("file save path not specified! Usage: lan-cli -p <port> <file_save_path> [filename]");
         std::process::exit(1);
     });
     let filename = args.iter().position(|x| x == "-f").and_then(|i| args.get(i + 2)).unwrap_or_else(|| {
-        eprintln!("Port not specified! Usage: cargo run --bin rec -p <port> <file_save_path> [filename]");
+        eprintln!("Filename not specified! Usage: lan-cli -p <port> <file_save_path> [filename]");
         std::process::exit(1);
     }) ;
 
@@ -72,5 +72,9 @@ fn take_arguments() -> Vec<String> {
 
 fn main() {
     let args = take_arguments();
+    
+    // initialize the thread pool at the start of the program
+    lan_core::get_thread_pool();
+
     controller(args);
 }

@@ -56,12 +56,17 @@ impl ThreadPool {
 }
 
 impl ThreadPool {
-    pub fn execute<F>(&self, f:F)
+    pub fn execute<F>(&self, f:F) -> mpsc::Receiver<()>
     where
         F: FnOnce() + Send + 'static
     {
-        let job = Box::new(f);
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let job = Box::new(move || {
+            f();
+            let _ = done_tx.send(());
+        });
         self.sender.as_ref().unwrap().send(job).expect("Failed to send job to worker");
+        done_rx
     }
 }
 
