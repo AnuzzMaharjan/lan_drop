@@ -1,30 +1,34 @@
-use std::process::Command;
+// launch receiver with arguments from command line
+fn launch_receiver(args: Vec<String>) {
+    let port = args.iter().position(|x| x == "-p").and_then(|i| args.get(i + 1)).unwrap_or_else(|| {
+        eprintln!("Port not specified! Usage: lan-cli -p <port> <file_save_path> [filename]");
+        std::process::exit(1);
+    });
+    let file_save_path = args.iter().position(|x| x == "-f").and_then(|i| args.get(i + 1)).unwrap_or_else(|| {
+        eprintln!("file save path not specified! Usage: lan-cli -p <port> <file_save_path> [filename]");
+        std::process::exit(1);
+    });
+    let filename = args.iter().position(|x| x == "-f").and_then(|i| args.get(i + 2)).unwrap_or_else(|| {
+        eprintln!("Filename not specified! Usage: lan-cli -p <port> <file_save_path> [filename]");
+        std::process::exit(1);
+    }) ;
 
-fn launch_receiver(
-    ip_addr: String,
-    port: String,
-    file_save_path: String,
-    filename: Option<String>,
-) {
-    let full_recv_command = format!(
-        "cargo run --bin rec -- {} {} {} {}",
-        ip_addr,
-        port,
-        file_save_path,
-        filename.unwrap_or_default()
+    lan_core::init_receiver(
+        port.to_owned(),
+        Some(file_save_path.to_owned()),
+        Some(filename.to_owned()),
     );
+}
 
-    let full_adv_command = format!("cargo run --bin adv -- {} {}", ip_addr, port);
-
-    Command::new("cmd")
-        .args(["/C", "start", "cmd", "/K", &full_recv_command])
-        .spawn()
-        .expect("Failed to launch receiver window");
-
-    Command::new("cmd")
-        .args(["/C", "start", "cmd", "/K", &full_adv_command])
-        .spawn()
-        .expect("Failed to launch advertiser window");
+fn launch_sender(args: Vec<String>) {
+    let ip_addr = args[2].clone().parse().expect("Invalid IP address!");
+    let port = args[3].clone();
+    let file_path = args[4].clone();
+    if let Err(e) = lan_core::sender(ip_addr, port, file_path) {
+        eprintln!("Error sending file: {}", e.get_message());
+    } else {
+        println!("File sent successfully!");
+    }
 }
 
 fn controller(args: Vec<String>) {
@@ -41,27 +45,20 @@ fn controller(args: Vec<String>) {
         "receive" => {
             println!("Receiving file...");
             if args.len() < 5 {
-                eprintln!("Usage: lan-cli receive <ip> <port> <file_save_path> [filename]");
+                eprintln!("Usage: lan-cli receive -p <port> -f <file_save_path> [filename]");
                 return;
             }
-            let ip_addr = args[2].clone();
-            let port = args[3].clone();
-            let file_save_path = args[4].clone();
-            let filename = args.get(5).cloned();
-            launch_receiver(ip_addr, port, file_save_path, filename);
-        },
+
+            launch_receiver(args);
+        }
         "send" => {
             println!("Sending file...");
             if args.len() < 5 {
                 eprintln!("Usage: lan-cli send <ip> <port> <file_path>");
                 return;
             }
-            let ip_addr = args[2].clone();
-            let port = args[3].clone();
-            let file_path = args[4].clone();
-            if let Err(e) = lan_core::sender(ip_addr, port, file_path) {
-                eprintln!("Error sending file: {}", e.get_message());
-            }
+
+            launch_sender(args);
         }
         _ => {
             eprintln!("Unknown command: {}", args[1]);
@@ -75,5 +72,9 @@ fn take_arguments() -> Vec<String> {
 
 fn main() {
     let args = take_arguments();
+    
+    // initialize the thread pool at the start of the program
+    lan_core::get_thread_pool();
+
     controller(args);
 }
