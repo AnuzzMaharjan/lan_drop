@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 use bincode::{Decode, Encode};
 
-#[derive(Debug)]
+#[derive(Clone,Debug)]
 pub struct Peer {
     name: String,
     ip: IpAddr,
