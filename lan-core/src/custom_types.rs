@@ -85,7 +85,6 @@ impl SendFileData {
 pub struct FileMetaData {
     pub filename: String,
     pub file_size: u64,
-    pub merkle_root: [u8;32],
     pub chunk_size: u32
 }
 

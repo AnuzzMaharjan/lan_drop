@@ -1,6 +1,6 @@
 use bincode::{self, config};
 use std::{
-    fs::File, io::{BufReader, Read, Write}, net::TcpStream, sync::{Arc, Mutex}, time::Instant
+    fs::File, io::{BufReader, Read, Write}, net::TcpStream, sync::{Arc, Mutex}, thread, time::{Duration, Instant}
 };
 
 use lan_engine::MerkleTree;
@@ -29,22 +29,7 @@ pub fn send_file(to_be_sent_data: &SendFileData) -> Result<(), ErrorMessage> {
     let unix_path = Arc::new(Mutex::new(unix_path));
 
     let pool = threadpool::get_thread_pool();
-    let (sender, receiver) = std::sync::mpsc::channel::<Result<MerkleTree, ErrorMessage>>();
     let thread_safe_unix_path = Arc::clone(&unix_path);
-
-    pool.execute(move || {
-        let mtree = match MerkleTree::new(&thread_safe_unix_path.lock().unwrap()) {
-            Ok((tree, _)) => tree,
-            Err(e) => {
-                sender.send(Err(ErrorMessage::new(
-                    "Failed to create Merkle Tree!".to_string(),
-                    e.kind(),
-                ))).unwrap();
-                return;
-            }
-        };
-        sender.send(Ok(mtree)).unwrap();
-    });
 
 
     let mut stream = match TcpStream::connect((
@@ -67,9 +52,6 @@ pub fn send_file(to_be_sent_data: &SendFileData) -> Result<(), ErrorMessage> {
         to_be_sent_data.get_tcp_port()
     );
 
-    // blocks until the Merkle Tree is created in the other thread
-    let mtree = receiver.recv().unwrap()?;
-
     let (filename, file_size) = {
         let path_guard = &unix_path.lock().unwrap();
         let filename = path_guard.split("/").last().unwrap().to_string();
@@ -80,12 +62,11 @@ pub fn send_file(to_be_sent_data: &SendFileData) -> Result<(), ErrorMessage> {
     let metadata = FileMetaData {
         filename: filename,
         file_size: file_size,
-        merkle_root: mtree.get_root_hash().unwrap(),
         chunk_size: {
-            if file_size < 10*1024*1024 {
+            if file_size < 256*1024 {
                 file_size as u32
             } else {
-             10*1024*1024 as u32
+             256*1024 as u32
             }
         }
     };
@@ -116,7 +97,7 @@ pub fn send_file(to_be_sent_data: &SendFileData) -> Result<(), ErrorMessage> {
         ));
     };
 
-    if let Err(e) = stream_file(&to_be_sent_data.get_filepath(), &mut stream) {
+    if let Err(e) = stream_file(&to_be_sent_data.get_filepath(), &mut stream, &metadata) {
         return Err(ErrorMessage::new(
             "Failed to send file data!".to_string(),
             e.kind(),
@@ -126,15 +107,18 @@ pub fn send_file(to_be_sent_data: &SendFileData) -> Result<(), ErrorMessage> {
     Ok(())
 }
 
-fn stream_file(file_path: &str, stream: &mut TcpStream) -> std::io::Result<()> {
+fn stream_file(file_path: &str, stream: &mut TcpStream, metadata: &FileMetaData) -> std::io::Result<()> {
     let file = File::open(file_path)?;
     let filesize = file.metadata()?.len();
 
     let mut reader = BufReader::new(file);
-    let mut buffer = [0u8; 8192];
+    let size_of_chunk = metadata.chunk_size as usize;
+    let mut buffer = vec![0u8; size_of_chunk];
 
     let total_bytes = 0;
     let start = Instant::now();
+
+    let mut chunk_hashes = [0u8;32];
 
     loop {
         let n = reader.read(&mut buffer)?;
@@ -142,10 +126,18 @@ fn stream_file(file_path: &str, stream: &mut TcpStream) -> std::io::Result<()> {
         if n == 0 {
             break;
         }
+
+        chunk_hashes = lan_engine::combine_hashes(&chunk_hashes, &lan_engine::hash_chunk(&buffer[..n]));
+
         stream.write_all(&buffer[..n])?;
 
-        display_progress(total_bytes, n, filesize.try_into().unwrap(), &start);
+        display_progress("Sent", total_bytes, n, filesize.try_into().unwrap(), &start);
     }
+
+    println!("File sent successfully!");
+    // small delay to ensure the receiver has received all the file data before sending the chunk hashes
+    thread::sleep(Duration::from_millis(200));
+    stream.write_all(&chunk_hashes)?;
 
     Ok(())
 }
