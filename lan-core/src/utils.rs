@@ -12,6 +12,7 @@ pub fn get_local_ip() -> std::io::Result<std::net::IpAddr> {
 }
 
 pub fn display_progress(
+    op_type: &str,
     mut total_bytes: usize,
     current_bytes: usize,
     filesize: usize,
@@ -19,11 +20,11 @@ pub fn display_progress(
 ) {
     total_bytes += current_bytes;
     let elapsed = start.elapsed().as_secs_f64();
-    let mbps = (total_bytes as f64 / 1024.0 / 1024.0) / elapsed;
+    let mbps = (total_bytes as f64 / (1024.0 * 1024.0)) / elapsed;
     let percent = (total_bytes as f64 / filesize as f64) * 100.0;
     println!(
-        "\rSent: {} B | {:.2}% ({:.2} MB/s)",
-        total_bytes, percent, mbps
+        "\r{}: {} B | {:.2}% ({:.2} MB/s)",
+        op_type, total_bytes, percent, mbps
     );
 }
 

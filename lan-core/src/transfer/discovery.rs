@@ -82,7 +82,6 @@ fn initialize_writer(peers: &mut HashMap<IpAddr, Peer>, rx: mpsc::Receiver<Contr
             }
         }
         // print peers
-        print!("\x1b[1;1H");
         print!("\x1b[J");
         for peer in peers.values() {
             println!("-> {} | {}", peer.get_ip(), peer.get_tcp_port());

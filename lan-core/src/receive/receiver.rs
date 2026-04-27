@@ -132,6 +132,7 @@ fn read_store_file_stream(
     };
     
     let total_bytes = 0;
+    let mut chunk_hashes = [0u8; 32];
     let start = Instant::now();
     // buffer as per the chunk size sent from the sender
     let mut buffer = vec![0u8; metadata.chunk_size as usize];
@@ -149,7 +150,10 @@ fn read_store_file_stream(
             break;
         }
 
+        chunk_hashes = lan_engine::combine_hashes(&chunk_hashes, &lan_engine::hash_chunk(&buffer[..n]));
+
         display_progress(
+            "Received",
             total_bytes,
             n,
             metadata.file_size.try_into().unwrap(),
@@ -164,25 +168,35 @@ fn read_store_file_stream(
         };
     }
 
+    // read the chunk hashes sent from the sender
+    let mut chunk_hash_buffer = [0u8; 32];
+    let received_chunk_hashes = match stream.read(&mut chunk_hash_buffer) {
+        Ok(_) => chunk_hashes,
+        Err(e) => {
+            return Err(ErrorMessage::new(
+                format!("Failed to read chunk hashes: {}", e),
+                e.kind(),
+            ));
+        }
+    };
+
+
     // file operations after temp file is stored
-    file_operations(metadata, &temp_file_path, filename, file_save_path)?;
+    file_operations(&temp_file_path, filename, file_save_path, &chunk_hashes, &received_chunk_hashes)?;
 
     Ok(format!("File saved: {} / {}", file_save_path, filename))
 }
 
 fn file_operations(
-    metadata: &FileMetaData,
     temp_file_path: &PathBuf,
     filename: &str,
     file_save_path: &str,
+    chunk_hashes: &[u8; 32],
+    received_chunk_hashes: &[u8; 32],
 ) -> Result<(), ErrorMessage> {
-    // verify file integrity using the Merkle root from the metadata
-    let (received_file_mtree, _) =
-        lan_engine::MerkleTree::new(temp_file_path.to_str().unwrap()).unwrap();
-    let received_root = received_file_mtree.get_root_hash().unwrap();
 
-    // corrupted file if the Merkle root does not match
-    if metadata.merkle_root != received_root {
+    // corrupted file if the hashes does not match
+    if received_chunk_hashes != chunk_hashes {
         // cleanup the temp file and directory if the file is corrupted
         cleanup_temp_file(&temp_file_path);
 
