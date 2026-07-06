@@ -3,8 +3,6 @@ use std::{
     fs::File, io::{BufReader, Read, Write}, net::TcpStream, sync::{Arc, Mutex}, thread, time::{Duration, Instant}
 };
 
-use lan_engine::MerkleTree;
-
 use crate::{
     custom_types::{ErrorMessage, FileMetaData, SendFileData}, threadpool, utils::{display_progress, filepath_contains_filename, standardize_path}
 };
@@ -28,8 +26,8 @@ pub fn send_file(to_be_sent_data: &SendFileData) -> Result<(), ErrorMessage> {
     // wrap the unix path in Arc and Mutex to share between threads after standardization and validation
     let unix_path = Arc::new(Mutex::new(unix_path));
 
-    let pool = threadpool::get_thread_pool();
-    let thread_safe_unix_path = Arc::clone(&unix_path);
+    // let pool = threadpool::get_thread_pool();
+    // let thread_safe_unix_path = Arc::clone(&unix_path);
 
 
     let mut stream = match TcpStream::connect((
@@ -57,7 +55,7 @@ pub fn send_file(to_be_sent_data: &SendFileData) -> Result<(), ErrorMessage> {
         let filename = path_guard.split("/").last().unwrap().to_string();
         let file_size = File::open(path_guard.as_str()).unwrap().metadata().unwrap().len();
         (filename, file_size)
-    };
+    }; 
 
     let metadata = FileMetaData {
         filename: filename,
@@ -142,17 +140,3 @@ fn stream_file(file_path: &str, stream: &mut TcpStream, metadata: &FileMetaData)
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_tree() {
-        const TEST_PATH: &str = "D:/rust/projects/lan_drop_v3/lan-cli/testtt.txt";
-
-        let (tree, leaf_hashes) = MerkleTree::new(TEST_PATH).unwrap();
-        println!("Merkle Tree: {:#?}", tree);
-        println!("Leaf Hashes: {:#?}", leaf_hashes);
-        assert_eq!(1, 1);
-    }
-}
