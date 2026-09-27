@@ -1,3 +1,3 @@
 [workspace]
 resolver = "3"
-members = [ "lan-cli","lan-core", "lan-engine"]
+members = [ "lan-drop","lan-core", "lan-engine", "tests"]

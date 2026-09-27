@@ -123,7 +123,6 @@ pub fn decode(bitstream: &str, root: &Node) -> Vec<u8> {
             current = root;
         }
     }
-    println!("result: {:?}", result);
 
     result
 }

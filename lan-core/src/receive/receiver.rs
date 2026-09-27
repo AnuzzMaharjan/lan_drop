@@ -25,7 +25,7 @@ pub fn receiver(
     let mut stream = match listener.accept() {
         Ok((str_res, addr_res)) => {
             println!("Connection established from: {}", addr_res.ip());
-
+            sender.send(Control::Stop(format!("Connection established from {} | Stopping advertiser!",addr_res.ip()))).unwrap();
             str_res
         }
         Err(e) => {
@@ -81,11 +81,9 @@ pub fn receiver(
         Ok(msg) => println!("{}", msg),
     }
 
-    sender
-        .send(Control::Stop(
-            "Process complete! Stopping advertiser...".to_string(),
-        ))
-        .unwrap();
+    println!(
+            "Process complete! Stopping advertiser...",
+        );
 }
 
 fn get_directory_chain(filepath: &str) -> PathBuf {
@@ -131,13 +129,22 @@ fn read_store_file_stream(
         Err(e) => return Err(e),
     };
     
-    let total_bytes = 0;
+    let mut total_bytes = 0;
+    let mut received: u64 = 0;
     let mut chunk_hashes = [0u8; 32];
     let start = Instant::now();
     // buffer as per the chunk size sent from the sender
     let mut buffer = vec![0u8; metadata.chunk_size as usize];
+    let chunk = metadata.chunk_size as usize;
+    let mut block: Vec<u8> = Vec::with_capacity(chunk);
+
     loop {
-        let n = match stream.read(&mut buffer) {
+        let remaining = metadata.file_size - received;
+        if remaining == 0 {
+            break;
+        }
+        let to_read = (buffer.len() as u64).min(remaining) as usize;
+        let n = match stream.read(&mut buffer[..to_read]) {
             Ok(n) => n,
             Err(e) => {
                 return Err(ErrorMessage::new(
@@ -147,15 +154,22 @@ fn read_store_file_stream(
             }
         };
         if n == 0 {
-            break;
+            return Err(ErrorMessage::new(
+                format!("Connection closed after {} of {} bytes",received,metadata.file_size), std::io::ErrorKind::UnexpectedEof))
+        }
+        received += n as u64;
+
+        block.extend_from_slice(&buffer[..n]);
+        while block.len() >= chunk {
+            chunk_hashes = lan_engine::combine_hashes(&chunk_hashes, &lan_engine::hash_chunk(&block[..chunk]));
+            block.drain(..chunk);
         }
 
-        chunk_hashes = lan_engine::combine_hashes(&chunk_hashes, &lan_engine::hash_chunk(&buffer[..n]));
 
         display_progress(
             "Received",
-            total_bytes,
-            n,
+            &mut total_bytes,
+            &n,
             metadata.file_size.try_into().unwrap(),
             &start,
         );
@@ -167,11 +181,16 @@ fn read_store_file_stream(
             ));
         };
     }
+    if !block.is_empty() {
+        chunk_hashes = lan_engine::combine_hashes(&chunk_hashes, &lan_engine::hash_chunk(&block));
+    }
+
+    println!();
 
     // read the chunk hashes sent from the sender
     let mut chunk_hash_buffer = [0u8; 32];
-    let received_chunk_hashes = match stream.read(&mut chunk_hash_buffer) {
-        Ok(_) => chunk_hashes,
+    let received_chunk_hashes = match stream.read_exact(&mut chunk_hash_buffer) {
+        Ok(_) => chunk_hash_buffer,
         Err(e) => {
             return Err(ErrorMessage::new(
                 format!("Failed to read chunk hashes: {}", e),
@@ -210,7 +229,7 @@ fn file_operations(
     let path_to_file = save_directory.join(filename);
 
     // attempt to move the file
-    if let Err(e) = fs::rename(&temp_file_path, &path_to_file) {
+    if fs::rename(&temp_file_path, &path_to_file).is_err() {
         // if moving the file fails, attempt to copy and delete the temp file
         if let Err(e) = fs::copy(&temp_file_path, &path_to_file) {
             return Err(ErrorMessage::new(
@@ -221,10 +240,6 @@ fn file_operations(
         // cleanup if the file is partially moved
         cleanup_temp_file(&temp_file_path);
 
-        return Err(ErrorMessage::new(
-            format!("Failed to save file: {}", e),
-            e.kind(),
-        ));
     } else {
         // cleanup if the file is successfully moved
         cleanup_temp_file(&temp_file_path);

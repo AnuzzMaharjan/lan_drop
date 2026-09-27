@@ -1,3 +1,5 @@
+use std::io::{self, Write};
+
 use regex::Regex;
 
 pub fn filepath_contains_filename(filepath: &str) -> bool {
@@ -13,19 +15,20 @@ pub fn get_local_ip() -> std::io::Result<std::net::IpAddr> {
 
 pub fn display_progress(
     op_type: &str,
-    mut total_bytes: usize,
-    current_bytes: usize,
+    total_bytes: &mut usize,
+    current_bytes: &usize,
     filesize: usize,
     start: &std::time::Instant,
 ) {
-    total_bytes += current_bytes;
+    *total_bytes = *total_bytes + current_bytes;
     let elapsed = start.elapsed().as_secs_f64();
-    let mbps = (total_bytes as f64 / (1024.0 * 1024.0)) / elapsed;
-    let percent = (total_bytes as f64 / filesize as f64) * 100.0;
-    println!(
-        "\r{}: {} B | {:.2}% ({:.2} MB/s)",
+    let mbps = (*total_bytes as f64 / (1024.0 * 1024.0)) / elapsed;
+    let percent = (*total_bytes as f64 / filesize as f64) * 100.0;
+    print!(
+        "\r{}: {} B | {:.2}% ({:.2} MB/s)\x1b[K",
         op_type, total_bytes, percent, mbps
     );
+    io::stdout().flush().expect("stdout could not be flushed!");
 }
 
 #[cfg(target_os = "windows")]

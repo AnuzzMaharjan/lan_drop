@@ -1,15 +1,16 @@
 // launch receiver with arguments from command line
+const RECEIVER_USAGE:&str = "Usage: lan-drop receive -p <port> -f <file_save_path> [filename]";
 fn launch_receiver(args: Vec<String>) {
     let port = args.iter().position(|x| x == "-p").and_then(|i| args.get(i + 1)).unwrap_or_else(|| {
-        eprintln!("Port not specified! Usage: lan-cli -p <port> <file_save_path> [filename]");
+        eprintln!("Port not specified! {}",RECEIVER_USAGE);
         std::process::exit(1);
     });
     let file_save_path = args.iter().position(|x| x == "-f").and_then(|i| args.get(i + 1)).unwrap_or_else(|| {
-        eprintln!("file save path not specified! Usage: lan-cli -p <port> <file_save_path> [filename]");
+        eprintln!("file save path not specified! {}",RECEIVER_USAGE);
         std::process::exit(1);
     });
     let filename = args.iter().position(|x| x == "-f").and_then(|i| args.get(i + 2)).unwrap_or_else(|| {
-        eprintln!("Filename not specified! Usage: lan-cli -p <port> <file_save_path> [filename]");
+        eprintln!("Filename not specified! {}",RECEIVER_USAGE);
         std::process::exit(1);
     }) ;
 
@@ -33,7 +34,7 @@ fn launch_sender(args: Vec<String>) {
 
 fn controller(args: Vec<String>) {
     if args.len() < 2 {
-        eprintln!("Usage: lan-cli <command> [options]");
+        eprintln!("Usage: lan-drop <command> [options]");
         return;
     }
 
@@ -45,7 +46,7 @@ fn controller(args: Vec<String>) {
         "receive" => {
             println!("Receiving file...");
             if args.len() < 5 {
-                eprintln!("Usage: lan-cli receive -p <port> -f <file_save_path> [filename]");
+                eprintln!("{}",RECEIVER_USAGE);
                 return;
             }
 
@@ -54,7 +55,7 @@ fn controller(args: Vec<String>) {
         "send" => {
             println!("Sending file...");
             if args.len() < 5 {
-                eprintln!("Usage: lan-cli send <ip> <port> <file_path>");
+                eprintln!("Usage: lan-drop send <ip> <port> <file_path>");
                 return;
             }
 

@@ -48,7 +48,7 @@ impl MerkleTree {
         let mut file = File::open(file_path)?;
         let mut leaf_hashes = Vec::new();
         // let mut buffer = [0u8; 8192];
-        let mut buffer = [0u8; 5];
+        let mut buffer = [0u8; 8192];
 
         while let Ok(bytes_read) = file.read(&mut buffer) {
             if bytes_read == 0 {

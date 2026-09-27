@@ -1,5 +1,5 @@
 [package]
-name = "lan-cli"
+name = "lan-drop"
 version = "0.1.0"
 edition = "2024"
 

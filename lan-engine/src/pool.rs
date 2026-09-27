@@ -18,11 +18,9 @@ impl Worker {
 
             match job {
                 Ok(job) => {
-                    println!("Worker {} got a job; executing.", id);
                     job();
                 },
                 Err(_) => {
-                    println!("Worker {} is shutting down.", id);
                     break;
                 }
             }
@@ -74,8 +72,7 @@ impl Drop for ThreadPool {
     fn drop(&mut self) {
         drop(self.sender.take());
 
-        for worker in &mut self.workers {   
-            println!("Shutting down worker {}", worker.id);
+        for worker in &mut self.workers {
             if let Some(thread) = worker.thread.take() {
                 thread.join().unwrap();
             }

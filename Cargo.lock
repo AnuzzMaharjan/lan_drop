@@ -97,19 +97,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "lan-cli"
-version = "0.1.0"
-dependencies = [
- "lan-core",
-]
-
-[[package]]
 name = "lan-core"
 version = "0.1.0"
 dependencies = [
  "bincode",
  "lan-engine",
  "regex",
+]
+
+[[package]]
+name = "lan-drop"
+version = "0.1.0"
+dependencies = [
+ "lan-core",
 ]
 
 [[package]]
@@ -228,6 +228,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tests"
+version = "0.1.0"
+dependencies = [
+ "lan-engine",
+ "sha2",
 ]
 
 [[package]]

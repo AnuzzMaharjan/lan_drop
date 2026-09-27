@@ -1,21 +1,15 @@
 use bincode::{self, config};
 use std::{
-    fs::File, io::{BufReader, Read, Write}, net::TcpStream, sync::{Arc, Mutex}, thread, time::{Duration, Instant}
+    fs::File, io::{BufReader, Read, Write}, net::TcpStream, sync::{Arc, Mutex}, time::{Instant}
 };
 
 use crate::{
-    custom_types::{ErrorMessage, FileMetaData, SendFileData}, threadpool, utils::{display_progress, filepath_contains_filename, standardize_path}
+    custom_types::{ErrorMessage, FileMetaData, SendFileData}, utils::{display_progress, standardize_path}
 };
 
 pub fn send_file(to_be_sent_data: &SendFileData) -> Result<(), ErrorMessage> {
     let unix_path = standardize_path(to_be_sent_data.get_filepath());
-    
-    if !filepath_contains_filename(&unix_path) {
-        return Err(ErrorMessage::new(
-            "Invalid filepath!".to_string(),
-            std::io::ErrorKind::InvalidInput,
-        ));
-    }
+
     if File::open(&unix_path).is_err() {
         return Err(ErrorMessage::new(
             "File not found!".to_string(),
@@ -113,28 +107,34 @@ fn stream_file(file_path: &str, stream: &mut TcpStream, metadata: &FileMetaData)
     let size_of_chunk = metadata.chunk_size as usize;
     let mut buffer = vec![0u8; size_of_chunk];
 
-    let total_bytes = 0;
+    let mut total_bytes = 0;
     let start = Instant::now();
 
     let mut chunk_hashes = [0u8;32];
 
     loop {
-        let n = reader.read(&mut buffer)?;
-        println!("Read {:?} bytes from file...", n);
-        if n == 0 {
+        let mut filled = 0;
+        while filled < size_of_chunk {
+            let r = reader.read(&mut buffer[filled..])?;
+            if r == 0 { break; }
+            filled += r;
+        }
+        if filled == 0 {
+
             break;
         }
 
-        chunk_hashes = lan_engine::combine_hashes(&chunk_hashes, &lan_engine::hash_chunk(&buffer[..n]));
+        chunk_hashes = lan_engine::combine_hashes(&chunk_hashes, &lan_engine::hash_chunk(&buffer[..filled]));
 
-        stream.write_all(&buffer[..n])?;
 
-        display_progress("Sent", total_bytes, n, filesize.try_into().unwrap(), &start);
+        stream.write_all(&buffer[..filled])?;
+
+
+        display_progress("Sent", &mut total_bytes, &filled, filesize.try_into().unwrap(), &start);
     }
+    println!();
 
     println!("File sent successfully!");
-    // small delay to ensure the receiver has received all the file data before sending the chunk hashes
-    thread::sleep(Duration::from_millis(200));
     stream.write_all(&chunk_hashes)?;
 
     Ok(())

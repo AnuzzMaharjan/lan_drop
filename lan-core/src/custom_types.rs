@@ -87,9 +87,3 @@ pub struct FileMetaData {
     pub file_size: u64,
     pub chunk_size: u32
 }
-
-impl Drop for FileMetaData {
-    fn drop(&mut self) {
-        println!("FileMetaData dropped: {}", self.filename);
-    }
-}
